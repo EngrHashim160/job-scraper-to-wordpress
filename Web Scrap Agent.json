@@ -1,0 +1,539 @@
+{
+  "name": "Web Scrap Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -624,
+        -576
+      ],
+      "id": "ceb2d4da-7814-4fc5-9017-80023b6d15ab",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://www.wadhefa.com/news.php",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -368,
+        -272
+      ],
+      "id": "53d23337-b95e-40e5-a26d-1a11cc68e76a",
+      "name": "Fetch News List"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse only the NEWS table rows on https://www.wadhefa.com/news.php\nconst html = $json.data || \"\";\n\n// Grab every <tr> that contains a link to /news/NNNN/\nconst rowRegex = /<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi;\nconst rows = [];\nlet m;\nwhile ((m = rowRegex.exec(html)) !== null) {\n  const tr = m[1];\n  if (/href=[\"'](?:https?:\\/\\/www\\.wadhefa\\.com)?\\/news\\/\\d+\\/[\"']/.test(tr)) {\n    rows.push(tr);\n  }\n}\n\n// Map rows → {title, link, postDate, org, visits}\nconst items = rows.map(tr => {\n  // title + link from the \"News title\" column\n  const a = tr.match(/<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)<\\/a>/i);\n  const rel = a ? a[1] : \"\";\n  const titleRaw = a ? a[2] : \"\";\n  const title = titleRaw.replace(/<[^>]+>/g, \"\").replace(/\\s+/g, \" \").trim();\n  const link = rel.startsWith(\"http\") ? rel : `https://www.wadhefa.com${rel}`;\n\n  // post date (last column), e.g. 20/08/2025\n  const dateMatch = tr.match(/(\\d{2}\\/\\d{2}\\/\\d{4})/);\n  let postDate = null;\n  if (dateMatch) {\n    const [d, m, y] = dateMatch[1].split(\"/\");\n    postDate = `${y}-${m}-${d}`;\n  }\n\n  // announcing entity & visits (first 2 columns) – optional\n  const tds = [...tr.matchAll(/<td[^>]*>([\\s\\S]*?)<\\/td>/gi)].map(x =>\n    x[1].replace(/<[^>]+>/g, \" \").replace(/\\s+/g, \" \").trim()\n  );\n  const visits = tds[0] || null;\n  const org = tds[1] || null;\n\n  return { json: { title, link, postDate, org, visits } };\n});\n\n// Keep only the first (topmost/latest) row for now\nreturn items.slice(0, 1);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -272
+      ],
+      "id": "a8366fb3-bee1-4f7a-b49c-9690770f4965",
+      "name": "Parse News Table"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Start Now",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are very good at scraping websites data.\nuser input will be like: Start now.\nUse this link \"{{ $json.link }}\" to Extract the Exact job details as it is like:\n  - title\n  – description\n  – job link\n  – image link\n  – post date\n  - Automatic categorization (sector, city, type, etc.)\nUse the \"Search\" tool.\nThen Rewrite the following job posting in Arabic with 100% original wording (0% copied).\n- Style: direct and clear job announcement.\n- Length: 400–550 words.\n- Structure:\n- Start immediately after the title with a short announcement sentence, e.g. \"أعلنت شركة [company] عن ...\" or \"أعلنت [entity] عن توفر ...\".\n- If multiple job titles are listed → create a section \"الوظائف المتاحة\".\n- If only required specializations are listed → create a section \"التخصصات المطلوبة\".\n- If neither is mentioned → skip this section.\n- If program/job duration is provided → add a section \"مدة البرنامج\" or \"نوع الوظيفة\".\n- If benefits are provided → list them under \"المزايا\".\n- If conditions/requirements are provided → list them under \"الشروط\".\n- If application dates are provided → add a section \"مواعيد التقديم\".\n- If no end date is mentioned → write: \"التقديم مستمر حتى الاكتفاء بالعدد المطلوب\".\n- Always end with \"طريقة التقديم\" and place only the provided apply_url there.\n- If there are extra details (e.g., location, training info, preferred qualifications), create new sections with suitable headings.\nTitle Rules:\n- Rewrite job_title and seo_title (never copy source).\n- Must be ≤60 characters, include the focus keyword, and attractive (e.g., \"وظائف [company] 2025 – فرص لحملة [degree]\").\nMeta Rules:\n- meta_description ≤160 characters, must include the focus keyword.\nOther rules:\n- Keep facts (salary, dates, conditions) exactly as in the source but fully rephrased.\n- Do not invent details not present.\n- Use <h2>, <p>, <ul><li> for structure.\n- Do not add any extra links or advice.\n "
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        128,
+        -576
+      ],
+      "id": "dc0e6088-1202-4894-b8c8-7e1799c2a2d6",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {
+          "maxTokens": 1600,
+          "temperature": 0.4
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        -256
+      ],
+      "id": "a168556c-6298-4612-83f6-cc21596a2626",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "vh4TCBgJ8tQNj6xl",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"job_details\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"title\": {\n          \"type\": \"string\",\n          \"description\": \"Job announcement title\"\n        },\n        \"description\": {\n          \"type\": \"string\",\n          \"description\": \"Full job description, tasks, qualifications, and application method\"\n        },\n        \"job_link\": {\n          \"type\": \"string\",\n          \"format\": \"uri\",\n          \"description\": \"Application or job link\"\n        },\n        \"image\": {\n          \"type\": \"string\",\n          \"format\": \"uri\",\n          \"description\": \"Image/logo URL for the job post\"\n        },\n        \"post_date\": {\n          \"type\": \"string\",\n          \"format\": \"date\",\n          \"description\": \"Posting date in YYYY-MM-DD format\"\n        },\n        \"automatic_categorization\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"sector\": {\n              \"type\": \"string\",\n              \"description\": \"Sector or category of the job (e.g., وظائف مدنية)\"\n            },\n            \"city\": {\n              \"type\": \"string\",\n              \"description\": \"City where the job is located\"\n            },\n            \"type\": {\n              \"type\": \"string\",\n              \"description\": \"Employment type (e.g., Full-time, Part-time)\"\n            }\n          },\n          \"required\": [\"sector\", \"city\", \"type\"]\n        }\n      },\n      \"required\": [\"title\", \"description\", \"job_link\", \"post_date\"]\n    }\n  },\n  \"required\": [\"job_details\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        352,
+        -256
+      ],
+      "id": "442392fd-53f4-4706-a01f-33a1105c8345",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "url": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('URL', ``, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        -256
+      ],
+      "id": "a08a7195-5006-47a8-9809-b37c243dbb53",
+      "name": "Search"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.output.job_details.image }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        528,
+        -576
+      ],
+      "id": "07b6ea00-3117-43e1-bc75-2d1bb8fc4e7c",
+      "name": "Download Image"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://atniwazifa.com/wp-json/wp/v2/media",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Disposition",
+              "value": "=attachment; filename=\"photo.png\""
+            },
+            {
+              "name": "authorization",
+              "value": " Basic YXNhbC5tanJiMUBnbWFpbC5jb206dFJCZyBEMUc2IFRFSFEgRzd2MiBnMGMxIEswbG8="
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        688,
+        -576
+      ],
+      "id": "1b14d271-4fc4-49e9-8e4c-4104172274aa",
+      "name": "Upload Image"
+    },
+    {
+      "parameters": {
+        "title": "={{ $('Download Image').item.json.output.job_details.title }}",
+        "additionalFields": {
+          "content": "={{ $('Download Image').item.json.output.job_details.description }}"
+        }
+      },
+      "type": "n8n-nodes-base.wordpress",
+      "typeVersion": 1,
+      "position": [
+        544,
+        -288
+      ],
+      "id": "6a1d3b27-878a-496b-873b-ff85e0b22b59",
+      "name": "Create a post",
+      "credentials": {
+        "wordpressApi": {
+          "id": "VPgFD4AOrl4o7tLC",
+          "name": "Wordpress account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://atniwazifa.com/wp-json/wp/v2/posts/{{ $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "wordpressApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"featured_media\": {{ $node[\"Upload Image\"].json.id }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        704,
+        -288
+      ],
+      "id": "d32ddbe4-1b1d-4247-b156-8a9bb0679053",
+      "name": "Update Post Featured Image",
+      "credentials": {
+        "wordpressApi": {
+          "id": "VPgFD4AOrl4o7tLC",
+          "name": "Wordpress account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node\n// Input:  item.json.data (or item.data) contains the HTML\n// Output: { json: { link: \"<absolute url>/\", title: \"<job title>\" } }\n\nconst BASE = 'https://www.ewdifh.com';\n\nfunction normalizeUrl(href) {\n  if (!href) return null;\n  if (/^https?:\\/\\//i.test(href)) return href;\n  if (href.startsWith('//')) return 'https:' + href;\n  if (href.startsWith('/')) return BASE + href;\n  return BASE + '/' + href.replace(/^\\.?\\//, '');\n}\n\n// Ensure a trailing slash before any query/hash\nfunction ensureTrailingSlash(u) {\n  if (!u) return u;\n  const path = (u.match(/^[^?#]+/) || [u])[0];\n  const rest = u.slice(path.length); // ?query / #hash / both\n  return (path.endsWith('/') ? path : path + '/') + rest;\n}\n\nfunction stripTags(s) {\n  return s.replace(/<[^>]*>/g, '');\n}\n\nfunction decodeEntities(s) {\n  if (!s) return s;\n  s = s.replace(/&amp;/g, '&')\n       .replace(/&lt;/g, '<')\n       .replace(/&gt;/g, '>')\n       .replace(/&quot;/g, '\"')\n       .replace(/&#39;/g, \"'\");\n  s = s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)));\n  s = s.replace(/&#(\\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));\n  return s;\n}\n\nfunction firstJobPost(html) {\n  if (typeof html !== 'string') return { link: null, title: null };\n\n  // Start scanning after the page heading to skip the nav bar\n  let start = html.search(/<h[12][^>]*>[\\s\\S]*?(All\\s*jobs|جميع\\s*الوظائف)[\\s\\S]*?<\\/h[12]>/i);\n  if (start === -1) start = html.indexOf('<main');\n  if (start === -1) start = 0;\n  const slice = html.slice(start);\n\n  // Iterate through anchors and pick the first that looks like a job post\n  const rx = /<a\\b[^>]*?href\\s*=\\s*(['\"])(.*?)\\1[^>]*>([\\s\\S]*?)<\\/a>/gi;\n\n  let m;\n  while ((m = rx.exec(slice))) {\n    const hrefRaw = (m[2] || '').trim();\n    let text = stripTags(m[3] || '').replace(/\\s+/g, ' ').trim();\n\n    // Skip non-content links and tiny/icon links\n    if (!hrefRaw || !text || text.length < 12) continue;\n    if (hrefRaw.startsWith('#') || /^javascript:/i.test(hrefRaw)) continue;\n    if (/\\.(png|jpe?g|webp|svg|gif|css|js|ttf|woff2?)$/i.test(hrefRaw)) continue;\n    if (/\\/(category|tag|page|author|search)\\b/i.test(hrefRaw)) continue;\n\n    // Heuristics that match post pages on ewdifh.com\n    const looksLikePost =\n      /(\\/job[s]?\\/|\\/\\d{4}\\/\\d{2}\\/|\\?p=\\d+|\\/post\\/|-[a-z0-9]{2,}-)/i.test(hrefRaw) ||\n      text.split(' ').length >= 4;\n\n    if (looksLikePost) {\n      const link = ensureTrailingSlash(normalizeUrl(hrefRaw));\n      return { link, title: decodeEntities(text) };\n    }\n  }\n\n  // Fallback\n  return { link: null, title: null };\n}\n\nconst out = $input.all().map(item => {\n  const html = (item.json && item.json.data) ?? item.data ?? '';\n  const { link, title } = firstJobPost(html);\n  return { json: { link, title } };\n});\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -576
+      ],
+      "id": "83d2f93c-1087-46ce-b8ca-ed0a24f0d2f2",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node\n// Input:  item.json.data (or item.data) contains the HTML\n// Output: { json: { link: \"<absolute url>/\", title: \"<job title>\" } }\n\nconst BASE = 'https://www.ewdifh.com';\n\nfunction normalizeUrl(href) {\n  if (!href) return null;\n  if (/^https?:\\/\\//i.test(href)) return href;\n  if (href.startsWith('//')) return 'https:' + href;\n  if (href.startsWith('/')) return BASE + href;\n  return BASE + '/' + href.replace(/^\\.?\\//, '');\n}\n\n// Ensure a trailing slash before any query/hash\nfunction ensureTrailingSlash(u) {\n  if (!u) return u;\n  const path = (u.match(/^[^?#]+/) || [u])[0];\n  const rest = u.slice(path.length); // ?query / #hash / both\n  return (path.endsWith('/') ? path : path + '/') + rest;\n}\n\nfunction stripTags(s) {\n  return s.replace(/<[^>]*>/g, '');\n}\n\nfunction decodeEntities(s) {\n  if (!s) return s;\n  s = s.replace(/&amp;/g, '&')\n       .replace(/&lt;/g, '<')\n       .replace(/&gt;/g, '>')\n       .replace(/&quot;/g, '\"')\n       .replace(/&#39;/g, \"'\");\n  s = s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)));\n  s = s.replace(/&#(\\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));\n  return s;\n}\n\nfunction firstJobPost(html) {\n  if (typeof html !== 'string') return { link: null, title: null };\n\n  // Start scanning after the page heading to skip the nav bar\n  let start = html.search(/<h[12][^>]*>[\\s\\S]*?(All\\s*jobs|جميع\\s*الوظائف)[\\s\\S]*?<\\/h[12]>/i);\n  if (start === -1) start = html.indexOf('<main');\n  if (start === -1) start = 0;\n  const slice = html.slice(start);\n\n  // Iterate through anchors and pick the first that looks like a job post\n  const rx = /<a\\b[^>]*?href\\s*=\\s*(['\"])(.*?)\\1[^>]*>([\\s\\S]*?)<\\/a>/gi;\n\n  let m;\n  while ((m = rx.exec(slice))) {\n    const hrefRaw = (m[2] || '').trim();\n    let text = stripTags(m[3] || '').replace(/\\s+/g, ' ').trim();\n\n    // Skip non-content links and tiny/icon links\n    if (!hrefRaw || !text || text.length < 12) continue;\n    if (hrefRaw.startsWith('#') || /^javascript:/i.test(hrefRaw)) continue;\n    if (/\\.(png|jpe?g|webp|svg|gif|css|js|ttf|woff2?)$/i.test(hrefRaw)) continue;\n    if (/\\/(category|tag|page|author|search)\\b/i.test(hrefRaw)) continue;\n\n    // Heuristics that match post pages on ewdifh.com\n    const looksLikePost =\n      /(\\/job[s]?\\/|\\/\\d{4}\\/\\d{2}\\/|\\?p=\\d+|\\/post\\/|-[a-z0-9]{2,}-)/i.test(hrefRaw) ||\n      text.split(' ').length >= 4;\n\n    if (looksLikePost) {\n      const link = ensureTrailingSlash(normalizeUrl(hrefRaw));\n      return { link, title: decodeEntities(text) };\n    }\n  }\n\n  // Fallback\n  return { link: null, title: null };\n}\n\nconst out = $input.all().map(item => {\n  const html = (item.json && item.json.data) ?? item.data ?? '';\n  const { link, title } = firstJobPost(html);\n  return { json: { link, title } };\n});\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -432
+      ],
+      "id": "10b4ff03-0eef-4137-a3c1-75e86e6e6f5b",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "url": "https://www.ewdifh.com/category/all-jobs",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -368,
+        -576
+      ],
+      "id": "d6932a0b-b14f-4b75-bdcf-d8f48cf1deff",
+      "name": "Get First Web Data"
+    },
+    {
+      "parameters": {
+        "url": "https://www.wdeftksa.com/sa/jobs",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -368,
+        -432
+      ],
+      "id": "29136fb0-bf5b-40b8-91a9-ee4fce033a47",
+      "name": "Get Sec Web Data"
+    },
+    {
+      "parameters": {
+        "content": "## WEB SCRAPE\n### Search for The First Job \n",
+        "height": 576,
+        "width": 208,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -432,
+        -688
+      ],
+      "id": "593de001-503a-4bfa-bf3a-243529f59225",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Code\n### Extract The Required Job Link\n",
+        "height": 576,
+        "width": 208,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        -688
+      ],
+      "id": "0b8467f8-e36b-49b3-b8e2-34468fd60200",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Reading and Rewriting AI\n### Read the Job from the given Link and Re-write with AI and format if for WordPress Post\n",
+        "height": 576,
+        "width": 448,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        16,
+        -688
+      ],
+      "id": "14bf4a03-581e-4230-b20a-7d21353f5183",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Post Handling\n### Create a Draft post for Review or Publish it.",
+        "height": 576,
+        "width": 368,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -688
+      ],
+      "id": "4aa9f4fd-039f-49a4-8716-1525f0797c41",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Timer to Trigger the WorkFlow",
+        "height": 576,
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -656,
+        -688
+      ],
+      "id": "70831850-eba2-4360-9966-0acf43ee1766",
+      "name": "Sticky Note4"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch News List",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Sec Web Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get First Web Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch News List": {
+      "main": [
+        [
+          {
+            "node": "Parse News Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse News Table": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Image": {
+      "main": [
+        [
+          {
+            "node": "Upload Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Image": {
+      "main": [
+        [
+          {
+            "node": "Create a post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a post": {
+      "main": [
+        [
+          {
+            "node": "Update Post Featured Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get First Web Data": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sec Web Data": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b837bd34-83ac-4dea-b124-f57f9734b683",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "afc947d330357d2fd0f8345ac77ea7d19f1a80baa010b1a9871e225c2a927d79"
+  },
+  "id": "srA9usubuo5cpxJF",
+  "tags": []
+}
