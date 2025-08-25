@@ -1,4 +1,5 @@
 # Web Scrap Agent (n8n Workflow)
+![Alt text](Web Scrap Agent (final).png)
 
 ## 📌 Overview
 The **Web Scrap Agent** is an automated workflow built with [n8n](https://n8n.io/) that scrapes job listings from multiple websites, rewrites the content using AI, and publishes the results directly to a WordPress site. It also integrates with Airtable for job post tracking and deduplication.
